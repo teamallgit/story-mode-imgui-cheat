@@ -1,0 +1,9 @@
+# Build intermediate objects
+build/
+*.o
+*.obj
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
