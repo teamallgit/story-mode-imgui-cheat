@@ -4,7 +4,7 @@ set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
-MINGW_ROOT="/tmp/mingw64_root"
+MINGW_ROOT="/home/androtech/.local/share/mingw64_root"
 CXX="$MINGW_ROOT/usr/bin/x86_64-w64-mingw32-g++"
 
 export PATH="$MINGW_ROOT/usr/bin:$PATH"

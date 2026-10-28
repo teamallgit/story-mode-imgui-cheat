@@ -18,26 +18,25 @@ A complete reverse-engineered DirectX 11 ImGui cheat menu and mechanics modifier
 - **Player HUD Overlay**:
   - Live 3D camera coordinates $(X, Y, Z)$ and counts of detected animatronics and remaining collectibles.
 
-### 2. Lighting & Screen Shaders
-- **Fullbright / Brightness Boost**:
-  - Fully illuminates pitch-black shadows, basements, and unlit hallways with an adjustable brightness slider.
-- **Color Shaders**:
-  - **Blood Red**: Atmospheric crimson / ignited horror tint.
-  - **Night Vision Green**: Camcorder / surveillance night-vision effect.
-  - **Midnight Blue**: Cold moonlight / deep cyber atmosphere.
-  - **Custom Color**: Full RGBA color picker to blend any custom color wash.
-  - **Shader Tint Opacity Slider**: Adjusts the filter strength from subtle tint to deep stylized color grade.
+### 2. In-Engine Ambient Lighting & Color
+- **True In-Engine Lighting / Fullbright Boost**:
+  - Dynamically amplifies native Unreal Engine 3D light sources (`SkyLight`, `PointLight`, `SpotLight`, room lamps, and the player flashlight).
+  - Illuminates pitch-black darkness, hallways, and basement shadows in full 3D with realistic diffuse and specular bounce—**not** a flat 2D gamma or screen rectangle overlay!
+  - Adjustable brightness slider (1.0x to 10.0x).
+- **Ambient Light Color Tinting**:
+  - Changes the actual emitted color of ambient and direct light in the 3D scene:
+    - **Natural Bright White**: Crisp, realistic fullbright clarity.
+    - **Blood Red**: Atmospheric crimson / ignited horror ambient glow.
+    - **Toxic Green**: Night-vision style eerie ambient lighting.
+    - **Deep Blue**: Midnight cinematic moody blue atmosphere.
+    - **Neon Purple**: Cyberpunk neon ambient glow.
+    - **Custom Color**: RGB color picker to illuminate the scene in any custom light color!
 
 ### 3. Player Movement & Survival
-- **Player NoClip (3D Ghost Flight)**:
-  - Phase smoothly through all walls, doors, ceilings, and obstacles.
-  - Native Unreal Engine 4 `MOVE_Flying` physics eliminates floor clamping and downward gravity.
-  - **Controls**:
-    - `WASD` / `Arrow Keys`: Fly in the direction your camera is looking.
-    - `Space`: Ascend vertically.
-    - `Ctrl` or `C`: Descend vertically.
-    - `Shift`: Boost flight speed (2.5x).
-  - Clean landing: Toggling off restores standard ground walking physics (`MOVE_Walking`).
+- **Player NoClip (Pass Through Walls)**:
+  - Phase smoothly through all walls, doors, ceilings, and barriers.
+  - Disables collision on the player character, allowing seamless passage through any obstacle.
+  - Toggling off restores normal ground walking collision immediately.
 - **God Mode (Stealth & Jumpscare Immunity)**:
   - Neutralizes `UPawnSensingComponent` (sight radius, hearing threshold, noise sensing flags).
   - Animatronics continue their normal patrol animations and walking paths, but are 100% blind and deaf to the player.

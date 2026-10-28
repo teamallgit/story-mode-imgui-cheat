@@ -53,6 +53,22 @@ struct FMinimalViewInfo {
     float AspectRatio;
 };
 
+struct FLinearColor {
+    float R, G, B, A;
+    FLinearColor() : R(1.0f), G(1.0f), B(1.0f), A(1.0f) {}
+    FLinearColor(float r, float g, float b, float a = 1.0f) : R(r), G(g), B(b), A(a) {}
+};
+
+struct TrackedLightComp {
+    void* CompPtr;
+    float OriginalIntensity;
+    uint32_t OriginalColor;
+    float OriginalRadius;
+    uint8_t OriginalMobility;
+    bool bOriginalSaved;
+    std::string Name;
+};
+
 struct FName {
     int32_t ComparisonIndex;
     int32_t Number;
@@ -141,10 +157,26 @@ namespace Offsets {
     constexpr uintptr_t PawnSensing_bEnableSensingUpdates = 0xDC;
     constexpr uintptr_t PawnSensing_bHearNoises = 0xE0;
     constexpr uintptr_t PawnSensing_PeripheralVisionAngle = 0x108;
+
+    // ULightComponent & Subclasses
+    constexpr uintptr_t Light_Intensity = 0x214;
+    constexpr uintptr_t Light_Color = 0x218;
+    constexpr uintptr_t Light_IndirectLightingIntensity = 0x21C;
+    constexpr uintptr_t SceneComponent_Mobility = 0x1B8;
+    constexpr uintptr_t SceneComponent_AttachChildren = 0xD0;
+    constexpr uintptr_t PointLight_AttenuationRadius = 0x37C;
+
+    // Native Functions
+    constexpr uintptr_t SetIntensity = 0xAB78F0;
+    constexpr uintptr_t SetLightColor = 0xAB7C20;
+    constexpr uintptr_t SetAttenuationRadius = 0xAB6340;
 }
 
 // Function pointer for AActor::SetActorEnableCollision
 typedef void (*tSetActorEnableCollision)(void* Actor, bool bNewActorEnableCollision);
+typedef void (*tSetIntensity)(void* LightComp, float NewIntensity);
+typedef void (*tSetLightColor)(void* LightComp, const FLinearColor* NewColor, bool bSRGB);
+typedef void (*tSetAttenuationRadius)(void* LightComp, float NewRadius);
 
 // Actor classification
 enum class ActorType {
@@ -180,6 +212,21 @@ public:
 
     static tSetActorEnableCollision GetSetCollisionFn() {
         static tSetActorEnableCollision fn = (tSetActorEnableCollision)(GetBaseAddress() + Offsets::SetActorEnableCollision);
+        return fn;
+    }
+
+    static tSetIntensity GetSetIntensityFn() {
+        static tSetIntensity fn = (tSetIntensity)(GetBaseAddress() + Offsets::SetIntensity);
+        return fn;
+    }
+
+    static tSetLightColor GetSetLightColorFn() {
+        static tSetLightColor fn = (tSetLightColor)(GetBaseAddress() + Offsets::SetLightColor);
+        return fn;
+    }
+
+    static tSetAttenuationRadius GetSetAttenuationRadiusFn() {
+        static tSetAttenuationRadius fn = (tSetAttenuationRadius)(GetBaseAddress() + Offsets::SetAttenuationRadius);
         return fn;
     }
 
@@ -409,5 +456,89 @@ public:
             }
         }
         return result;
+    }
+
+    static std::vector<void*> ScanLightComponents(void* playerActor = nullptr) {
+        std::vector<void*> lightComps;
+        uintptr_t world = GetWorld();
+        if (!world) return lightComps;
+
+        uintptr_t level = *(uintptr_t*)(world + Offsets::World_PersistentLevel);
+        if (!IsValidPtr((void*)level)) return lightComps;
+
+        uintptr_t actorList = *(uintptr_t*)(level + Offsets::Level_Actors);
+        int32_t count = *(int32_t*)(level + Offsets::Level_ActorsCount);
+        if (!IsValidPtr((void*)actorList) || count <= 0 || count > 50000)
+            return lightComps;
+
+        auto addUnique = [&](void* p) {
+            if (!IsValidPtr(p)) return;
+            for (void* existing : lightComps) {
+                if (existing == p) return;
+            }
+            lightComps.push_back(p);
+        };
+
+        void** actors = (void**)actorList;
+        for (int32_t i = 0; i < count; i++) {
+            void* actor = actors[i];
+            if (!IsValidPtr(actor)) continue;
+
+            std::string actorName = GetActorName(actor);
+            if (actorName.empty()) continue;
+
+            bool bIsLightActor = (actorName.find("Light") != std::string::npos ||
+                                  actorName.find("light") != std::string::npos ||
+                                  actorName.find("Lamp") != std::string::npos);
+
+            // 1. RootComponent of light actor or component with Light in name
+            uintptr_t root = *(uintptr_t*)((uintptr_t)actor + Offsets::Actor_RootComponent);
+            if (IsValidPtr((void*)root)) {
+                if (bIsLightActor) {
+                    addUnique((void*)root);
+                } else {
+                    std::string rootName = GetActorName((void*)root);
+                    if (rootName.find("Light") != std::string::npos || rootName.find("light") != std::string::npos) {
+                        addUnique((void*)root);
+                    }
+                }
+
+                // Check AttachChildren of root component
+                uintptr_t childArrayPtr = *(uintptr_t*)(root + Offsets::SceneComponent_AttachChildren);
+                int32_t childCount = *(int32_t*)(root + Offsets::SceneComponent_AttachChildren + 8);
+                if (IsValidPtr((void*)childArrayPtr) && childCount > 0 && childCount < 100) {
+                    void** children = (void**)childArrayPtr;
+                    for (int32_t c = 0; c < childCount; c++) {
+                        void* child = children[c];
+                        if (IsValidPtr(child)) {
+                            std::string cName = GetActorName(child);
+                            if (cName.find("Light") != std::string::npos || cName.find("light") != std::string::npos ||
+                                cName.find("Spot") != std::string::npos || cName.find("Point") != std::string::npos) {
+                                addUnique(child);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Scan component pointers on the actor if it is player or light actor
+            if (bIsLightActor || actor == playerActor || actorName.find("FreeRoamPlayerCharacter") != std::string::npos) {
+                for (uintptr_t off = 0x160; off < 0x850; off += sizeof(uintptr_t)) {
+                    uintptr_t p = *(uintptr_t*)((uintptr_t)actor + off);
+                    if (IsValidPtr((void*)p) && (p & 0x7) == 0 && (void*)p != (void*)actor) {
+                        std::string pName = GetActorName((void*)p);
+                        if (pName.find("LightComponent") != std::string::npos ||
+                            pName.find("SpotLight") != std::string::npos ||
+                            pName.find("PointLight") != std::string::npos ||
+                            pName.find("SkyLight") != std::string::npos ||
+                            pName.find("Flashlight") != std::string::npos) {
+                            addUnique((void*)p);
+                        }
+                    }
+                }
+            }
+        }
+
+        return lightComps;
     }
 };

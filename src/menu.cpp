@@ -79,34 +79,36 @@ void Render() {
 
         if (ImGui::BeginTabBar("Tabs")) {
             // ================================================================
-            // Tab 1: Visuals & Shaders
+            // Tab 1: Visuals & In-Game Lighting
             // ================================================================
-            if (ImGui::BeginTabItem("  Visuals & Shaders  ")) {
+            if (ImGui::BeginTabItem("  Visuals & Lighting  ")) {
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Lighting & Screen Shaders:");
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "In-Engine Ambient Lighting & Color:");
                 ImGui::Spacing();
 
-                ImGui::Checkbox("Fullbright / Brightness Boost", &g_Settings.bFullbright);
+                ImGui::Checkbox("Ambient Lighting / Fullbright Boost", &g_Settings.bAmbientLighting);
                 ImGui::SameLine();
                 ImGui::TextDisabled("(?)");
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Illuminates pitch-black darkness, hallways, and basement shadows.");
+                    ImGui::SetTooltip("Directly amplifies 3D scene ambient lighting, SkyLights, room lamps, and the player flashlight in-engine.\nNo 2D gamma filter!");
                 }
 
-                if (g_Settings.bFullbright) {
+                if (g_Settings.bAmbientLighting) {
                     ImGui::Indent(15.0f);
-                    ImGui::SliderFloat("Brightness Level", &g_Settings.FullbrightIntensity, 0.05f, 0.75f, "%.2f");
-                    ImGui::Unindent(15.0f);
-                }
+                    ImGui::SliderFloat("Brightness Boost", &g_Settings.AmbientBrightness, 1.0f, 10.0f, "%.1fx");
 
-                ImGui::Spacing();
-                const char* shaderNames[] = { "Disabled (Normal)", "Blood Red", "Night Vision Green", "Midnight Blue", "Custom Color" };
-                ImGui::Combo("Color Shader", &g_Settings.ColorShader, shaderNames, IM_ARRAYSIZE(shaderNames));
-                if (g_Settings.ColorShader > 0) {
-                    ImGui::Indent(15.0f);
-                    ImGui::SliderFloat("Shader Tint Opacity", &g_Settings.ShaderIntensity, 0.05f, 0.85f, "%.2f");
-                    if (g_Settings.ColorShader == 4) { // Custom Color
-                        ImGui::ColorEdit3("Tint Color", g_Settings.CustomShaderColor);
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Ambient Light Color Tint", &g_Settings.bAmbientColor);
+                    if (g_Settings.bAmbientColor) {
+                        const char* colorModes[] = { "Natural Bright White", "Blood Red", "Toxic Green", "Deep Blue", "Neon Purple", "Custom Color" };
+                        ImGui::Combo("Ambient Color", &g_Settings.AmbientColorMode, colorModes, IM_ARRAYSIZE(colorModes));
+                        if (g_Settings.AmbientColorMode == 5) { // Custom Color
+                            ImGui::ColorEdit3("Custom Color", g_Settings.CustomAmbientColor);
+                        }
+                    }
+
+                    if (g_Settings.ActiveLightCount > 0) {
+                        ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Active Scene Lights Modified: %d", g_Settings.ActiveLightCount);
                     }
                     ImGui::Unindent(15.0f);
                 }
@@ -179,11 +181,11 @@ void Render() {
                 ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), "Player Movement & Survival:");
                 ImGui::Spacing();
 
-                ImGui::Checkbox("Player NoClip (3D Ghost / Flight)", &g_Settings.bPlayerNoClip);
+                ImGui::Checkbox("Player NoClip (Pass Through Walls)", &g_Settings.bPlayerNoClip);
                 ImGui::SameLine();
                 ImGui::TextDisabled("(?)");
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Fly & pass through walls, floors, and obstacles!\nControls: WASD / Arrows (Fly), Space (Up), Ctrl/C (Down), Shift (Boost speed).");
+                    ImGui::SetTooltip("Allows you to walk and pass directly through walls, doors, and barriers.");
                 }
 
                 ImGui::Checkbox("God Mode (Jumpscare Immunity & Stealth)", &g_Settings.bGodMode);
@@ -230,47 +232,8 @@ void Render() {
     ImGui::End();
 }
 
-void RenderScreenShaders(ImDrawList* drawList, float screenWidth, float screenHeight) {
-    if (!drawList || screenWidth <= 0.0f || screenHeight <= 0.0f) return;
-
-    // 1. Fullbright / Brightness Boost
-    if (g_Settings.bFullbright && g_Settings.FullbrightIntensity > 0.01f) {
-        float alpha = std::clamp(g_Settings.FullbrightIntensity, 0.0f, 0.85f);
-        drawList->AddRectFilled(ImVec2(0, 0), ImVec2(screenWidth, screenHeight), ImColor(1.0f, 1.0f, 1.0f, alpha));
-    }
-
-    // 2. Color Shaders (Blood Red, Night Vision Green, Midnight Blue, Custom)
-    if (g_Settings.ColorShader > 0 && g_Settings.ShaderIntensity > 0.01f) {
-        float alpha = std::clamp(g_Settings.ShaderIntensity, 0.0f, 0.90f);
-        ImU32 col = 0;
-        switch (g_Settings.ColorShader) {
-            case 1: // Blood Red
-                col = ImColor(1.0f, 0.05f, 0.05f, alpha);
-                break;
-            case 2: // Night Vision Green
-                col = ImColor(0.08f, 1.0f, 0.15f, alpha);
-                break;
-            case 3: // Midnight Blue
-                col = ImColor(0.1f, 0.35f, 1.0f, alpha);
-                break;
-            case 4: // Custom Color
-                col = ImColor(g_Settings.CustomShaderColor[0], g_Settings.CustomShaderColor[1], g_Settings.CustomShaderColor[2], alpha);
-                break;
-            default:
-                break;
-        }
-
-        if (col != 0) {
-            drawList->AddRectFilled(ImVec2(0, 0), ImVec2(screenWidth, screenHeight), col);
-        }
-    }
-}
-
 void RenderESP(ImDrawList* drawList, float screenWidth, float screenHeight) {
     if (!drawList) return;
-
-    // Render Fullbright & Screen Color Shaders across entire screen
-    RenderScreenShaders(drawList, screenWidth, screenHeight);
 
     FMinimalViewInfo camera;
     if (!UE4SDK::GetCameraPOV(camera))
@@ -582,6 +545,156 @@ void UpdateCheats() {
     s_bPrevGodMode = g_Settings.bGodMode;
     s_bPrevNoClip = g_Settings.bPlayerNoClip;
     g_Settings.bTeleportRobotsAway = false;
+
+    // ========================================================================
+    // Ambient Lighting & In-Game Color Cheat
+    // ========================================================================
+    static std::vector<TrackedLightComp> s_TrackedLights;
+    static uintptr_t s_LastLevel = 0;
+    static bool s_bPrevAmbientActive = false;
+    static bool s_bPrevColorActive = false;
+
+    uintptr_t world = UE4SDK::GetWorld();
+    uintptr_t currentLevel = 0;
+    if (world) {
+        currentLevel = *(uintptr_t*)(world + Offsets::World_PersistentLevel);
+    }
+
+    if (currentLevel != s_LastLevel) {
+        s_TrackedLights.clear();
+        s_LastLevel = currentLevel;
+        s_bPrevAmbientActive = false;
+        s_bPrevColorActive = false;
+    }
+
+    bool bAmbientActive = g_Settings.bAmbientLighting;
+    bool bColorActive = g_Settings.bAmbientColor;
+
+    if (bAmbientActive) {
+        std::vector<void*> currentLightPointers = UE4SDK::ScanLightComponents(playerActor);
+
+        for (void* comp : currentLightPointers) {
+            bool found = false;
+            for (const auto& tracked : s_TrackedLights) {
+                if (tracked.CompPtr == comp) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && IsValidPtr(comp)) {
+                TrackedLightComp t;
+                t.CompPtr = comp;
+                t.OriginalIntensity = *(float*)((uintptr_t)comp + Offsets::Light_Intensity);
+                t.OriginalColor = *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color);
+                t.OriginalRadius = *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius);
+                t.OriginalMobility = *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility);
+                t.bOriginalSaved = true;
+                t.Name = UE4SDK::GetActorName(comp);
+                s_TrackedLights.push_back(t);
+            }
+        }
+
+        g_Settings.ActiveLightCount = (int)s_TrackedLights.size();
+
+        FLinearColor targetColor(1.0f, 1.0f, 1.0f, 1.0f);
+        if (bColorActive) {
+            switch (g_Settings.AmbientColorMode) {
+                case 0: targetColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f); break; // Natural White
+                case 1: targetColor = FLinearColor(1.0f, 0.05f, 0.05f, 1.0f); break; // Blood Red
+                case 2: targetColor = FLinearColor(0.08f, 1.0f, 0.15f, 1.0f); break; // Toxic Green
+                case 3: targetColor = FLinearColor(0.12f, 0.35f, 1.0f, 1.0f); break; // Deep Blue
+                case 4: targetColor = FLinearColor(0.95f, 0.15f, 1.0f, 1.0f); break; // Neon Purple
+                case 5: // Custom Color
+                    targetColor = FLinearColor(
+                        g_Settings.CustomAmbientColor[0],
+                        g_Settings.CustomAmbientColor[1],
+                        g_Settings.CustomAmbientColor[2],
+                        1.0f
+                    );
+                    break;
+                default: break;
+            }
+        }
+
+        float brightnessMult = std::max(1.0f, g_Settings.AmbientBrightness);
+
+        for (auto& tracked : s_TrackedLights) {
+            void* comp = tracked.CompPtr;
+            if (!IsValidPtr(comp)) continue;
+
+            // Set Mobility to Movable (2) so GPU dynamic lighting is enabled
+            *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility) = 2;
+
+            float origInt = tracked.OriginalIntensity;
+            float newInt = origInt * brightnessMult;
+
+            bool bIsSkyLight = (tracked.Name.find("Sky") != std::string::npos);
+            if (bIsSkyLight) {
+                float minSky = 3.5f * brightnessMult;
+                if (newInt < minSky) newInt = minSky;
+            } else {
+                float minLight = 600.0f * brightnessMult;
+                if (newInt < minLight) newInt = minLight;
+            }
+
+            *(float*)((uintptr_t)comp + Offsets::Light_Intensity) = newInt;
+            auto fnIntensity = UE4SDK::GetSetIntensityFn();
+            if (fnIntensity) {
+                fnIntensity(comp, newInt);
+            }
+
+            if (!bIsSkyLight) {
+                float curRadius = *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius);
+                if (curRadius > 10.0f && curRadius < 10000.0f) {
+                    float newRadius = std::min(15000.0f, curRadius * 2.5f);
+                    *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius) = newRadius;
+                    auto fnRadius = UE4SDK::GetSetAttenuationRadiusFn();
+                    if (fnRadius) {
+                        fnRadius(comp, newRadius);
+                    }
+                }
+            }
+
+            if (bColorActive) {
+                uint8_t rByte = (uint8_t)(std::clamp(targetColor.R, 0.0f, 1.0f) * 255.0f);
+                uint8_t gByte = (uint8_t)(std::clamp(targetColor.G, 0.0f, 1.0f) * 255.0f);
+                uint8_t bByte = (uint8_t)(std::clamp(targetColor.B, 0.0f, 1.0f) * 255.0f);
+                uint32_t fColorVal = (255 << 24) | (rByte << 16) | (gByte << 8) | bByte;
+
+                *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = fColorVal;
+                auto fnColor = UE4SDK::GetSetLightColorFn();
+                if (fnColor) {
+                    fnColor(comp, &targetColor, true);
+                }
+            } else if (s_bPrevColorActive && !bColorActive) {
+                *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = tracked.OriginalColor;
+            }
+        }
+    } else if (s_bPrevAmbientActive && !bAmbientActive) {
+        for (const auto& tracked : s_TrackedLights) {
+            void* comp = tracked.CompPtr;
+            if (!IsValidPtr(comp)) continue;
+
+            *(float*)((uintptr_t)comp + Offsets::Light_Intensity) = tracked.OriginalIntensity;
+            *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = tracked.OriginalColor;
+            *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius) = tracked.OriginalRadius;
+            *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility) = tracked.OriginalMobility;
+
+            auto fnIntensity = UE4SDK::GetSetIntensityFn();
+            if (fnIntensity) {
+                fnIntensity(comp, tracked.OriginalIntensity);
+            }
+            auto fnRadius = UE4SDK::GetSetAttenuationRadiusFn();
+            if (fnRadius) {
+                fnRadius(comp, tracked.OriginalRadius);
+            }
+        }
+        s_TrackedLights.clear();
+        g_Settings.ActiveLightCount = 0;
+    }
+
+    s_bPrevAmbientActive = bAmbientActive;
+    s_bPrevColorActive = bColorActive;
 }
 
 } // namespace CheatMenu

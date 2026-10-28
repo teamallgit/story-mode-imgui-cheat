@@ -21,19 +21,19 @@ struct CheatSettings {
     float CollectibleColor[4] = { 0.2f, 0.85f, 1.0f, 1.0f }; // Neon Cyan
     float SnaplineColor[4] = { 1.0f, 0.5f, 0.0f, 0.7f };    // Orange
 
-    // Lighting & Screen Shaders
-    bool bFullbright = false;
-    float FullbrightIntensity = 0.35f;
-    int ColorShader = 0; // 0=None, 1=Red, 2=Green, 3=Blue, 4=Custom
-    float ShaderIntensity = 0.35f;
-    float CustomShaderColor[4] = { 1.0f, 0.0f, 0.5f, 0.35f };
+    // In-Engine Ambient Lighting & Color
+    bool bAmbientLighting = false;        // Real in-game ambient lighting & brightness boost
+    float AmbientBrightness = 3.0f;       // Brightness multiplier (1.0x - 10.0x)
+    bool bAmbientColor = false;           // Change ambient light color in the game
+    int AmbientColorMode = 0;             // 0=Natural White, 1=Blood Red, 2=Toxic Green, 3=Deep Blue, 4=Neon Purple, 5=Custom
+    float CustomAmbientColor[3] = { 1.0f, 1.0f, 1.0f }; // Custom RGB color
 
     // Robot Cheats
     bool bFreezeRobots = false;       // Freezes robot logic & animations in place
     bool bTeleportRobotsAway = false; // Teleports robots 100 meters away
 
     // Player Cheats
-    bool bPlayerNoClip = false;       // Player passes through walls & 3D flies
+    bool bPlayerNoClip = false;       // Player passes through walls and barriers
     bool bGodMode = false;            // Jumpscare immunity (neutralizes sensory detection)
     bool bSuperSpeed = false;
     float PlayerSpeedMultiplier = 1.5f;
@@ -41,6 +41,7 @@ struct CheatSettings {
     // Runtime state
     int LastRobotCount = 0;
     int LastCollectibleCount = 0;
+    int ActiveLightCount = 0;
     std::string CurrentLevelName = "Detecting...";
 };
 
