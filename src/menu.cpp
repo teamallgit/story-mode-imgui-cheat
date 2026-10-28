@@ -90,7 +90,7 @@ void Render() {
                 ImGui::SameLine();
                 ImGui::TextDisabled("(?)");
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Directly amplifies 3D scene ambient lighting, SkyLights, room lamps, and the player flashlight in-engine.\nNo 2D gamma filter!");
+                    ImGui::SetTooltip("Hardware-accelerated DirectX 11 HDR ambient lighting & tone mapping.\nLifts pitch-black shadows into clear ambient visibility with rich contrast without crashing or washed-out flat gray.");
                 }
 
                 if (g_Settings.bAmbientLighting) {
@@ -107,9 +107,8 @@ void Render() {
                         }
                     }
 
-                    if (g_Settings.ActiveLightCount > 0) {
-                        ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Active Scene Lights Modified: %d", g_Settings.ActiveLightCount);
-                    }
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.0f), "Mode: D3D11 Native HDR Ambient Shader");
                     ImGui::Unindent(15.0f);
                 }
 
@@ -545,156 +544,6 @@ void UpdateCheats() {
     s_bPrevGodMode = g_Settings.bGodMode;
     s_bPrevNoClip = g_Settings.bPlayerNoClip;
     g_Settings.bTeleportRobotsAway = false;
-
-    // ========================================================================
-    // Ambient Lighting & In-Game Color Cheat
-    // ========================================================================
-    static std::vector<TrackedLightComp> s_TrackedLights;
-    static uintptr_t s_LastLevel = 0;
-    static bool s_bPrevAmbientActive = false;
-    static bool s_bPrevColorActive = false;
-
-    uintptr_t world = UE4SDK::GetWorld();
-    uintptr_t currentLevel = 0;
-    if (world) {
-        currentLevel = *(uintptr_t*)(world + Offsets::World_PersistentLevel);
-    }
-
-    if (currentLevel != s_LastLevel) {
-        s_TrackedLights.clear();
-        s_LastLevel = currentLevel;
-        s_bPrevAmbientActive = false;
-        s_bPrevColorActive = false;
-    }
-
-    bool bAmbientActive = g_Settings.bAmbientLighting;
-    bool bColorActive = g_Settings.bAmbientColor;
-
-    if (bAmbientActive) {
-        std::vector<void*> currentLightPointers = UE4SDK::ScanLightComponents(playerActor);
-
-        for (void* comp : currentLightPointers) {
-            bool found = false;
-            for (const auto& tracked : s_TrackedLights) {
-                if (tracked.CompPtr == comp) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found && IsValidPtr(comp)) {
-                TrackedLightComp t;
-                t.CompPtr = comp;
-                t.OriginalIntensity = *(float*)((uintptr_t)comp + Offsets::Light_Intensity);
-                t.OriginalColor = *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color);
-                t.OriginalRadius = *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius);
-                t.OriginalMobility = *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility);
-                t.bOriginalSaved = true;
-                t.Name = UE4SDK::GetActorName(comp);
-                s_TrackedLights.push_back(t);
-            }
-        }
-
-        g_Settings.ActiveLightCount = (int)s_TrackedLights.size();
-
-        FLinearColor targetColor(1.0f, 1.0f, 1.0f, 1.0f);
-        if (bColorActive) {
-            switch (g_Settings.AmbientColorMode) {
-                case 0: targetColor = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f); break; // Natural White
-                case 1: targetColor = FLinearColor(1.0f, 0.05f, 0.05f, 1.0f); break; // Blood Red
-                case 2: targetColor = FLinearColor(0.08f, 1.0f, 0.15f, 1.0f); break; // Toxic Green
-                case 3: targetColor = FLinearColor(0.12f, 0.35f, 1.0f, 1.0f); break; // Deep Blue
-                case 4: targetColor = FLinearColor(0.95f, 0.15f, 1.0f, 1.0f); break; // Neon Purple
-                case 5: // Custom Color
-                    targetColor = FLinearColor(
-                        g_Settings.CustomAmbientColor[0],
-                        g_Settings.CustomAmbientColor[1],
-                        g_Settings.CustomAmbientColor[2],
-                        1.0f
-                    );
-                    break;
-                default: break;
-            }
-        }
-
-        float brightnessMult = std::max(1.0f, g_Settings.AmbientBrightness);
-
-        for (auto& tracked : s_TrackedLights) {
-            void* comp = tracked.CompPtr;
-            if (!IsValidPtr(comp)) continue;
-
-            // Set Mobility to Movable (2) so GPU dynamic lighting is enabled
-            *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility) = 2;
-
-            float origInt = tracked.OriginalIntensity;
-            float newInt = origInt * brightnessMult;
-
-            bool bIsSkyLight = (tracked.Name.find("Sky") != std::string::npos);
-            if (bIsSkyLight) {
-                float minSky = 3.5f * brightnessMult;
-                if (newInt < minSky) newInt = minSky;
-            } else {
-                float minLight = 600.0f * brightnessMult;
-                if (newInt < minLight) newInt = minLight;
-            }
-
-            *(float*)((uintptr_t)comp + Offsets::Light_Intensity) = newInt;
-            auto fnIntensity = UE4SDK::GetSetIntensityFn();
-            if (fnIntensity) {
-                fnIntensity(comp, newInt);
-            }
-
-            if (!bIsSkyLight) {
-                float curRadius = *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius);
-                if (curRadius > 10.0f && curRadius < 10000.0f) {
-                    float newRadius = std::min(15000.0f, curRadius * 2.5f);
-                    *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius) = newRadius;
-                    auto fnRadius = UE4SDK::GetSetAttenuationRadiusFn();
-                    if (fnRadius) {
-                        fnRadius(comp, newRadius);
-                    }
-                }
-            }
-
-            if (bColorActive) {
-                uint8_t rByte = (uint8_t)(std::clamp(targetColor.R, 0.0f, 1.0f) * 255.0f);
-                uint8_t gByte = (uint8_t)(std::clamp(targetColor.G, 0.0f, 1.0f) * 255.0f);
-                uint8_t bByte = (uint8_t)(std::clamp(targetColor.B, 0.0f, 1.0f) * 255.0f);
-                uint32_t fColorVal = (255 << 24) | (rByte << 16) | (gByte << 8) | bByte;
-
-                *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = fColorVal;
-                auto fnColor = UE4SDK::GetSetLightColorFn();
-                if (fnColor) {
-                    fnColor(comp, &targetColor, true);
-                }
-            } else if (s_bPrevColorActive && !bColorActive) {
-                *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = tracked.OriginalColor;
-            }
-        }
-    } else if (s_bPrevAmbientActive && !bAmbientActive) {
-        for (const auto& tracked : s_TrackedLights) {
-            void* comp = tracked.CompPtr;
-            if (!IsValidPtr(comp)) continue;
-
-            *(float*)((uintptr_t)comp + Offsets::Light_Intensity) = tracked.OriginalIntensity;
-            *(uint32_t*)((uintptr_t)comp + Offsets::Light_Color) = tracked.OriginalColor;
-            *(float*)((uintptr_t)comp + Offsets::PointLight_AttenuationRadius) = tracked.OriginalRadius;
-            *(uint8_t*)((uintptr_t)comp + Offsets::SceneComponent_Mobility) = tracked.OriginalMobility;
-
-            auto fnIntensity = UE4SDK::GetSetIntensityFn();
-            if (fnIntensity) {
-                fnIntensity(comp, tracked.OriginalIntensity);
-            }
-            auto fnRadius = UE4SDK::GetSetAttenuationRadiusFn();
-            if (fnRadius) {
-                fnRadius(comp, tracked.OriginalRadius);
-            }
-        }
-        s_TrackedLights.clear();
-        g_Settings.ActiveLightCount = 0;
-    }
-
-    s_bPrevAmbientActive = bAmbientActive;
-    s_bPrevColorActive = bColorActive;
 }
 
 } // namespace CheatMenu
